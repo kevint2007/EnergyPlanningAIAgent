@@ -1,4 +1,3 @@
-
 # Custom
 server/
 test_output/
@@ -126,8 +125,6 @@ dmypy.json
 *.xlsx
 *.csv
 
-
-
 # VSCode
 .vscode
 
@@ -135,3 +132,12 @@ dmypy.json
 .DS_Store
 *.tif
 *.gpkg
+*.shp
+*.shx
+*.dbf
+*.cpg
+*.qpj
+*.prj
+
+# Streamlit Local Security Keys
+.streamlit/

@@ -1,0 +1,6 @@
+--- CHATONSSET PROJECT IMPACT SUMMARY (SOFIA REGION) ---
+Region: Sofia, Madagascar
+Total Population Impact (Top 20): 138,606 people
+Primary Hub (ID 125389) PV Hybrid Capex: $13,143,229.00
+Average Solar Irradiance: 2170.10 kWh/m2
+--- END OF SUMMARY ---
