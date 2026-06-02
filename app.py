@@ -100,37 +100,36 @@ st.markdown(
     "I am your specialized **Decision Support Interface** scaled for the Mozambique National Electrification Strategy."
 )
 
-# --- PROGRAMMATIC PANDAS BASELINES & SCENARIO SCALING ---
+# --- PROGRAMMATIC PANDAS BASELINES & TRUE MILESTONE STACKING ---
+# Ensure row header names are cleanly set as the lookup index for reliable row extraction
 calc_df = df.copy()
-grid_col = [c for c in calc_df.columns if 'grid' in c.lower() and ('inv' in c.lower() or 'cap' in c.lower())]
-mini_col = [c for c in calc_df.columns if 'mini' in c.lower() and ('inv' in c.lower() or 'cap' in c.lower())]
-solar_col = [c for c in calc_df.columns if ('solar' in c.lower() or 'standalone' in c.lower() or 'sa_' in c.lower()) and ('inv' in c.lower() or 'cap' in c.lower())]
-conn_col = [c for c in calc_df.columns if 'connect' in c.lower() or 'pop' in c.lower() or 'added' in c.lower() or 'hh' in c.lower()]
+calc_df.columns = [c.strip() for c in calc_df.columns]
+calc_df.set_index(calc_df.columns[0], inplace=True)
 
-# Base native extractions
-base_grid = float(calc_df[grid_col[0]].sum()) if grid_col else 1896087913.00
-base_mini = float(calc_df[mini_col[0]].sum()) if mini_col else 91116227.00
-base_solar = float(calc_df[solar_col[0]].sum()) if solar_col else 1968549687.00
-base_conns = int(calc_df[conn_col[0]].sum()) if conn_col else 10738925
+# 1. Stacking Cumulative Investment Metrics (2025 + 2030 Columns)
+grid_val = float(calc_df.loc['4.Investment_Grid', '2025'] + calc_df.loc['4.Investment_Grid', '2030'])
+solar_val = float(calc_df.loc['4.Investment_SA_PV', '2025'] + calc_df.loc['4.Investment_SA_PV', '2030'])
 
-# Dynamic Multipliers to force numeric variation on screen when switching options
-if "0_1" in active_scenario_code:  # Ambitious Scenario
-    grid_val = base_grid * 1.12
-    mini_val = base_mini * 1.45
-    solar_val = base_solar * 1.38
-    total_connections_calc = int(base_conns * 1.15)
-elif "0_0" not in active_scenario_code:  # Maximized Scenario
-    grid_val = base_grid * 0.85
-    mini_val = base_mini * 2.10
-    solar_val = base_solar * 1.75
-    total_connections_calc = int(base_conns * 1.32)
-else:  # Reference Scenario Baseline
-    grid_val = base_grid
-    mini_val = base_mini
-    solar_val = base_solar
-    total_connections_calc = base_conns
+# Mini-Grids combine Hydro and Solar/PV Hybrid pathways programmatically
+mg_hydro_inv = float(calc_df.loc['4.Investment_MG_Hydro', '2025'] + calc_df.loc['4.Investment_MG_Hydro', '2030'])
+mg_pv_inv = float(calc_df.loc['4.Investment_MG_PV_Hybrid', '2025'] + calc_df.loc['4.Investment_MG_PV_Hybrid', '2030'])
+mini_val = mg_hydro_inv + mg_pv_inv
 
-dominant_tech = "Standalone Solar Systems" if solar_val > grid_val else "Grid Extension"
+# 2. Stacking Cumulative New Consumer Connections Metrics (2025 + 2030 Columns)
+grid_conns = int(calc_df.loc['2.New_Connections_Grid', '2025'] + calc_df.loc['2.New_Connections_Grid', '2030'])
+solar_conns = int(calc_df.loc['2.New_Connections_SA_PV', '2025'] + calc_df.loc['2.New_Connections_SA_PV', '2030'])
+mg_hydro_conns = int(calc_df.loc['2.New_Connections_MG_Hydro', '2025'] + calc_df.loc['2.New_Connections_MG_Hydro', '2030'])
+mg_pv_conns = int(calc_df.loc['2.New_Connections_MG_PV_Hybrid', '2025'] + calc_df.loc['2.New_Connections_MG_PV_Hybrid', '2030'])
+
+total_connections_calc = grid_conns + solar_conns + mg_hydro_conns + mg_pv_conns
+
+# Evaluate true dominant technology footprint programmatically based on the active array data
+if solar_val > grid_val and solar_val > mini_val:
+    dominant_tech = "Standalone Solar Systems"
+elif grid_val > solar_val and grid_val > mini_val:
+    dominant_tech = "Grid Extension"
+else:
+    dominant_tech = "Mini-Grid Infrastructure"
 
 # FIXED: Metric cards pinned to the top of the interface so they remain anchored during state changes
 st.subheader("🛰️ National Scenario Matrix KPI Overview")
@@ -237,7 +236,7 @@ Your written text analysis and executive summaries MUST explicitly reflect these
 * **Standalone Solar Systems:** USD {solar_val:,.2f}
 
 #### 📊 Macro Scalability Metrics
-* **Total Targeted National Connections (2030):** {total_connections_calc:} Households
+* **Total Targeted National Connections (2030):** {total_connections_calc:,} Households
 * **Strategic Policy Guidance:** {clean_policy}
 """
 
