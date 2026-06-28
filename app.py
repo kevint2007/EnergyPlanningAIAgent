@@ -90,6 +90,17 @@ QUESTION_REGISTRY = {
         "formula": "Group estimated household connections by FinalElecCode2030 technology category.",
         "notes": "Uses the same household-estimation method as the national connection total."
     },
+    "average_cost_per_household_connection": {
+        "status": "implemented",
+        "scope": "national",
+        "columns_used": [
+            "Total_Investment_USD",
+            "Estimated_Connections_HH",
+            "FinalElecCode2030"
+        ],
+        "formula": "Average cost per household connection = modelled investment / estimated household connections.",
+        "notes": "Calculated nationally and by technology. Division-by-zero cases return 0."
+    },
     "population_summary": {
         "status": "implemented",
         "scope": "national",
@@ -275,6 +286,25 @@ def calculate_national_summary(processed_df):
         "Standalone Solar Systems": solar_val,
         "Mini-Grid Infrastructure": mini_val
     }
+    def safe_divide(numerator, denominator):
+        if denominator == 0:
+            return 0.0
+        return float(numerator / denominator)
+
+    total_investment_usd = densification_val + extension_val + solar_val + mini_val
+
+    average_cost_per_household_connection_usd = safe_divide(
+        total_investment_usd,
+        total_connections_hh_calc
+    )
+
+    average_cost_by_technology_usd = {
+        "grid_densification": safe_divide(densification_val, densification_hh),
+        "grid_extension": safe_divide(extension_val, extension_hh),
+        "standalone_solar": safe_divide(solar_val, solar_hh),
+        "mini_grid": safe_divide(mini_val, mini_hh)
+    }
+
     dominant_tech = max(tech_investments, key=tech_investments.get)
 
     return {
@@ -282,6 +312,9 @@ def calculate_national_summary(processed_df):
         "grid_extension_investment_usd": extension_val,
         "mini_grid_investment_usd": mini_val,
         "standalone_solar_investment_usd": solar_val,
+        "total_investment_usd": total_investment_usd,
+        "average_cost_per_household_connection_usd": average_cost_per_household_connection_usd,
+        "average_cost_per_household_connection_by_technology_usd": average_cost_by_technology_usd,
         "estimated_household_connections": total_connections_hh_calc,
         "estimated_household_connections_by_year": {
             "2025": connections_hh_2025,
@@ -293,7 +326,18 @@ def calculate_national_summary(processed_df):
             "standalone_solar": int(round(solar_hh)),
             "mini_grid": int(round(mini_hh))
         },
-        "population_summary": {
+        "average_cost_per_household_connection": {
+        "status": "implemented",
+        "scope": "national",
+        "columns_used": [
+            "Total_Investment_USD",
+            "Estimated_Connections_HH",
+            "FinalElecCode2030"
+        ],
+        "formula": "Average cost per household connection = modelled investment / estimated household connections.",
+        "notes": "Calculated nationally and by technology. Division-by-zero cases return 0."
+    },
+    "population_summary": {
             "base_population": int(round(base_population)),
             "target_population_2030": int(round(target_population_2030)),
             "unelectrified_population_start": int(round(unelectrified_population_start)),
@@ -367,6 +411,10 @@ def format_usd_short(value):
     return f"USD {value / 1_000_000:.1f}M"
 
 
+def format_usd_per_connection(value):
+    return f"USD {value:,.2f} per household connection"
+
+
 def format_capacity(value_kw):
     if value_kw >= 1000:
         return f"{value_kw / 1000:,.2f} MW"
@@ -426,11 +474,28 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
+    show_methodology = st.toggle(
+        "Show methodology in responses",
+        value=False,
+        help="Turn on to include formulas and calculation notes in each answer."
+    )
+
+    response_mode = st.selectbox(
+        "Response mode",
+        options=["Concise", "Technical"],
+        index=0,
+        help=(
+            "Concise gives shorter stakeholder-facing answers. "
+            "Technical adds scenario traceability and calculation-source details."
+        )
+    )
+
     st.divider()
     st.info(
         f"Status: Operational\n"
         f"Test Scenario: {active_scenario_code}\n"
-        f"Data Mode: Deterministic Python summaries"
+        f"Data Mode: Deterministic Python summaries\n"
+        f"Response Mode: {response_mode}"
     )
     st.caption("Developed for National IEP Framework Scaling")
 
@@ -472,18 +537,20 @@ with c4:
         value=format_usd_short(metrics["standalone_solar_investment_usd"])
     )
 
-with st.expander("📊 Calculation Methodology & Traceability Notes"):
-    st.markdown("""
-    * **Investment Formula:** `(InvestmentCost2025 * ElecStatusIn2025) + InvestmentCost2030`
-    * **Connection Formula:** `(NewConnections2025 * ElecStatusIn2025) + NewConnections2030`
-    * **Household Connections Formula:** `Person-level new connections / NumPeoplePerHH`
-    * **Unelectrified Population Formula:** `PopStartYear - ElecPopCalib`
-    * **Near-Grid Unelectrified Population Filter:** `CurrentMVLineDist <= 10`
-    * **Capacity Formula:** `(NewCapacity2025 * ElecStatusIn2025) + NewCapacity2030`
-    * **Mini-Grid Count Formula:** Count settlement clusters where `FinalElecCode2030` is in `[5, 6, 7]`
-    """)
-    st.markdown("#### Current Question Registry")
-    st.json(QUESTION_REGISTRY)
+if show_methodology:
+    with st.expander("📊 Calculation Methodology & Traceability Notes", expanded=False):
+        st.markdown("""
+        * **Investment Formula:** `(InvestmentCost2025 * ElecStatusIn2025) + InvestmentCost2030`
+        * **Connection Formula:** `(NewConnections2025 * ElecStatusIn2025) + NewConnections2030`
+        * **Household Connections Formula:** `Person-level new connections / NumPeoplePerHH`
+        * **Unelectrified Population Formula:** `PopStartYear - ElecPopCalib`
+        * **Near-Grid Unelectrified Population Filter:** `CurrentMVLineDist <= 10`
+        * **Capacity Formula:** `(NewCapacity2025 * ElecStatusIn2025) + NewCapacity2030`
+        * **Mini-Grid Count Formula:** Count settlement clusters where `FinalElecCode2030` is in `[5, 6, 7]`
+        * **Average Cost Formula:** `Modelled investment / estimated household connections`
+        """)
+        st.markdown("#### Current Question Registry")
+        st.json(QUESTION_REGISTRY)
 
 st.divider()
 
@@ -519,6 +586,55 @@ for message in st.session_state.messages:
 
 if chat_prompt := st.chat_input("Analyze Mozambique national impact..."):
     user_query = chat_prompt
+
+
+def remove_methodology_section(response_text):
+    """Hide methodology details unless explicitly requested or enabled in the sidebar."""
+    marker = "\n#### Methodology"
+    if marker in response_text:
+        return response_text.split(marker)[0].rstrip()
+    return response_text
+
+
+def display_and_store_response(response_text, force_methodology=False):
+    """Render an assistant response and store the exact displayed text in chat history."""
+    if force_methodology or show_methodology:
+        display_text = response_text
+    else:
+        display_text = remove_methodology_section(response_text)
+
+    st.markdown(display_text)
+    st.session_state.messages.append({"role": "assistant", "content": display_text})
+
+
+def technical_scope_note(question_module, columns_used):
+    """Add traceability details only when the user selects Technical response mode."""
+    if response_mode != "Technical":
+        return ""
+
+    columns_text = ", ".join([f"`{column}`" for column in columns_used])
+    return f"""
+
+#### Technical Scope
+* **Question module:** {question_module}
+* **Scenario file:** `{active_scenario_code}`
+* **Calculation source:** deterministic Python summary object
+* **Columns used:** {columns_text}
+"""
+
+
+def response_mode_instruction():
+    """Return a short instruction for fallback LLM responses based on selected mode."""
+    if response_mode == "Technical":
+        return (
+            "Use technical response mode: include concise analytical language, make scope explicit, "
+            "and prioritize traceability to the deterministic context object. Do not add unsupported methodology."
+        )
+
+    return (
+        "Use concise response mode: answer the user's specific question directly in short language. "
+        "Do not provide a broad national scenario report unless the user asks for an overview."
+    )
 
 
 # --- 7. AGENT EXECUTION LOOP ---
@@ -596,6 +712,17 @@ if user_query:
             "households electrified"
         ]
 
+        average_cost_keywords = [
+            "average cost per connection",
+            "average cost per household connection",
+            "cost per connection",
+            "cost per household",
+            "investment per connection",
+            "average investment per connection",
+            "average connection cost",
+            "connection cost"
+        ]
+
         capacity_keywords = [
             "capacity",
             "kw",
@@ -654,6 +781,7 @@ if user_query:
         is_methodology_query = any(keyword in query_lower for keyword in methodology_keywords)
         is_investment_query = any(keyword in query_lower for keyword in investment_keywords)
         is_connection_query = any(keyword in query_lower for keyword in connection_keywords)
+        is_average_cost_query = any(keyword in query_lower for keyword in average_cost_keywords)
         is_population_query = any(keyword in query_lower for keyword in population_keywords)
         is_capacity_query = any(keyword in query_lower for keyword in capacity_keywords)
         is_mini_grid_count_query = any(keyword in query_lower for keyword in mini_grid_count_keywords)
@@ -693,8 +821,7 @@ I can help you evaluate investment metrics, connection targets, population metri
 * **Standalone Solar Systems**
 
 Please click one of the shortcuts above or enter an analytical question below to query the active scenario output."""
-            st.markdown(greeting_response)
-            st.session_state.messages.append({"role": "assistant", "content": greeting_response})
+            display_and_store_response(greeting_response)
 
         elif is_methodology_query:
             mg = metrics["mini_grid_summary"]
@@ -735,13 +862,40 @@ For the active scenario, this gives:
 * **Estimated Household Connections:** {metrics['estimated_household_connections']:,} households
 * **Estimated Household Connections from 2025 Step:** {metrics['estimated_household_connections_by_year']['2025']:,} households
 * **Estimated Household Connections from 2030 Step:** {metrics['estimated_household_connections_by_year']['2030']:,} households
+* **Average Cost per Household Connection:** {format_usd_per_connection(metrics['average_cost_per_household_connection_usd'])}
 * **Currently Unelectrified Population:** {metrics['population_summary']['unelectrified_population_start']:,} people
 * **Near-Grid Unelectrified Population:** {metrics['population_summary']['unelectrified_within_10km_mv']:,} people
 * **Total New Capacity:** {format_capacity(metrics['total_new_capacity_kw'])}
 * **Mini-Grid Settlement-Cluster Count:** {mg['mini_grid_cluster_count']:,}
 """
-            st.markdown(methodology_response)
-            st.session_state.messages.append({"role": "assistant", "content": methodology_response})
+            display_and_store_response(methodology_response, force_methodology=True)
+
+        elif is_average_cost_query and not is_province_query:
+            avg_cost = metrics["average_cost_per_household_connection_usd"]
+            avg_by_tech = metrics["average_cost_per_household_connection_by_technology_usd"]
+
+            average_cost_response = f"""### Average Cost per Household Connection
+
+#### National Average
+* **Average Cost per Household Connection:** {format_usd_per_connection(avg_cost)}
+
+#### Average Cost per Household Connection by Technology
+* **Grid Densification:** {format_usd_per_connection(avg_by_tech['grid_densification'])}
+* **Grid Extension:** {format_usd_per_connection(avg_by_tech['grid_extension'])}
+* **Mini-Grid Infrastructure:** {format_usd_per_connection(avg_by_tech['mini_grid'])}
+* **Standalone Solar Systems (SHS):** {format_usd_per_connection(avg_by_tech['standalone_solar'])}
+
+#### Analytical Note
+This result summarizes modelled average-cost outputs from the active scenario. It does not prescribe implementation decisions.{technical_scope_note("average_cost_per_household_connection", ["Total_Investment_USD", "Estimated_Connections_HH", "FinalElecCode2030"])}
+
+#### Methodology
+Average cost per household connection is calculated as:
+
+`Modelled investment / estimated household connections`
+
+The technology-specific values divide each technology's modelled investment by its estimated household connections.
+"""
+            display_and_store_response(average_cost_response)
 
         elif is_investment_query and not is_province_query:
             total_investment = (
@@ -763,7 +917,7 @@ For the active scenario, this gives:
 * **Standalone Solar Systems (SHS):** USD {metrics['standalone_solar_investment_usd']:,.2f}
 
 #### Analytical Note
-This result summarizes modelled investment outputs from the active scenario. It does not prescribe implementation decisions.
+This result summarizes modelled investment outputs from the active scenario. It does not prescribe implementation decisions.{technical_scope_note("investment_by_technology", ["InvestmentCost2025", "InvestmentCost2030", "ElecStatusIn2025", "FinalElecCode2030"])}
 
 #### Methodology
 Investment is calculated using:
@@ -772,8 +926,7 @@ Investment is calculated using:
 
 The resulting values are grouped by `FinalElecCode2030` technology category.
 """
-            st.markdown(investment_response)
-            st.session_state.messages.append({"role": "assistant", "content": investment_response})
+            display_and_store_response(investment_response)
 
         elif is_connection_query and not is_province_query:
             hh = metrics["estimated_household_connections_by_technology"]
@@ -794,7 +947,7 @@ The resulting values are grouped by `FinalElecCode2030` technology category.
 * **Standalone Solar Systems (SHS):** {hh['standalone_solar']:,} households
 
 #### Analytical Note
-This result summarizes modelled household-connection outputs from the active scenario. It does not prescribe implementation decisions.
+This result summarizes modelled household-connection outputs from the active scenario. It does not prescribe implementation decisions.{technical_scope_note("estimated_household_connections", ["NewConnections2025", "NewConnections2030", "ElecStatusIn2025", "NumPeoplePerHH", "FinalElecCode2030"])}
 
 #### Methodology
 Person-level new connections are calculated using:
@@ -813,8 +966,7 @@ Total estimated household connections are calculated using:
 
 The resulting household values are grouped by `FinalElecCode2030` technology category.
 """
-            st.markdown(connections_response)
-            st.session_state.messages.append({"role": "assistant", "content": connections_response})
+            display_and_store_response(connections_response)
 
         elif is_province_query:
             if province_match is None:
@@ -827,8 +979,7 @@ Please ask using one of the available `Admin1` province names, for example:
 
 {", ".join(available_provinces[:12])}
 """
-                st.markdown(province_response)
-                st.session_state.messages.append({"role": "assistant", "content": province_response})
+                display_and_store_response(province_response)
 
             else:
                 province_metrics = calculate_province_summary(df, province_match)
@@ -838,8 +989,7 @@ Please ask using one of the available `Admin1` province names, for example:
 
 I could not find `{province_match}` in the active scenario file's `Admin1` column.
 """
-                    st.markdown(province_response)
-                    st.session_state.messages.append({"role": "assistant", "content": province_response})
+                    display_and_store_response(province_response)
 
                 else:
                     pop = province_metrics["population_summary"]
@@ -881,7 +1031,7 @@ I could not find `{province_match}` in the active scenario file's `Admin1` colum
 #### Mini-Grid Settlement-Cluster Count
 * **Mini-Grid Settlement-Cluster Count:** {mg['mini_grid_cluster_count']:,}
 * **Average Capacity per Mini-Grid Cluster:** {format_capacity(mg['average_mini_grid_capacity_kw'])}
-* **Average Estimated Households per Mini-Grid Cluster:** {mg['average_mini_grid_households']:,} households
+* **Average Estimated Households per Mini-Grid Cluster:** {mg['average_mini_grid_households']:,} households{technical_scope_note("province_summary", ["Admin1", "FinalElecCode2030", "Total_Investment_USD", "Estimated_Connections_HH", "PopStartYear", "Pop2030", "ElecPopCalib", "Total_New_Capacity_kW"])}
 
 #### Methodology
 This province summary filters the processed scenario file where:
@@ -890,8 +1040,7 @@ This province summary filters the processed scenario file where:
 
 Then it reuses the same deterministic calculation engine used for the national outputs.
 """
-                    st.markdown(province_response)
-                    st.session_state.messages.append({"role": "assistant", "content": province_response})
+                    display_and_store_response(province_response)
 
         elif is_population_query:
             pop = metrics["population_summary"]
@@ -900,7 +1049,7 @@ Then it reuses the same deterministic calculation engine used for the national o
                 population_response = f"""### Near-Grid Unelectrified Population
 
 * **Currently Unelectrified Population Within 10 km of Existing MV Lines:** {pop['unelectrified_within_10km_mv']:,} people
-* **Total Currently Unelectrified Population:** {pop['unelectrified_population_start']:,} people
+* **Total Currently Unelectrified Population:** {pop['unelectrified_population_start']:,} people{technical_scope_note("near_grid_population", ["PopStartYear", "ElecPopCalib", "CurrentMVLineDist"])}
 
 #### Methodology
 Currently unelectrified population is calculated first as:
@@ -915,7 +1064,7 @@ The near-grid subset is then calculated by filtering settlement clusters where:
                 population_response = f"""### Currently Unelectrified Population
 
 * **Currently Unelectrified Population:** {pop['unelectrified_population_start']:,} people
-* **Currently Unelectrified Population Within 10 km of Existing MV Lines:** {pop['unelectrified_within_10km_mv']:,} people
+* **Currently Unelectrified Population Within 10 km of Existing MV Lines:** {pop['unelectrified_within_10km_mv']:,} people{technical_scope_note("currently_unelectrified_population", ["PopStartYear", "ElecPopCalib", "CurrentMVLineDist"])}
 
 #### Methodology
 Currently unelectrified population is calculated as:
@@ -933,7 +1082,7 @@ This accounts for settlements that may be partially electrified at the start of 
 
 #### Current Unelectrified Population
 * **Currently Unelectrified Population:** {pop['unelectrified_population_start']:,} people
-* **Currently Unelectrified Population Within 10 km of Existing MV Lines:** {pop['unelectrified_within_10km_mv']:,} people
+* **Currently Unelectrified Population Within 10 km of Existing MV Lines:** {pop['unelectrified_within_10km_mv']:,} people{technical_scope_note("currently_unelectrified_population", ["PopStartYear", "ElecPopCalib", "CurrentMVLineDist"])}
 
 #### Methodology
 Currently unelectrified population is calculated as:
@@ -944,8 +1093,7 @@ This accounts for settlements that may be partially electrified at the start of 
 
 `CurrentMVLineDist <= 10`
 """
-            st.markdown(population_response)
-            st.session_state.messages.append({"role": "assistant", "content": population_response})
+            display_and_store_response(population_response)
 
         elif is_capacity_query:
             cap = metrics["capacity_by_technology_kw"]
@@ -959,7 +1107,7 @@ This accounts for settlements that may be partially electrified at the start of 
 * **Grid Densification:** {format_capacity(cap['grid_densification'])}
 * **Grid Extension:** {format_capacity(cap['grid_extension'])}
 * **Mini-Grid Infrastructure:** {format_capacity(cap['mini_grid'])}
-* **Standalone Solar Systems (SHS):** {format_capacity(cap['standalone_solar'])}
+* **Standalone Solar Systems (SHS):** {format_capacity(cap['standalone_solar'])}{technical_scope_note("capacity_by_technology", ["NewCapacity2025", "NewCapacity2030", "ElecStatusIn2025", "FinalElecCode2030"])}
 
 #### Methodology
 Capacity is calculated using the validated time-step formula:
@@ -968,8 +1116,7 @@ Capacity is calculated using the validated time-step formula:
 
 The resulting capacity values are then grouped by `FinalElecCode2030` technology category.
 """
-            st.markdown(capacity_response)
-            st.session_state.messages.append({"role": "assistant", "content": capacity_response})
+            display_and_store_response(capacity_response)
 
         elif is_mini_grid_count_query:
             mg = metrics["mini_grid_summary"]
@@ -981,7 +1128,7 @@ The resulting capacity values are then grouped by `FinalElecCode2030` technology
 
 #### Average Mini-Grid Cluster Characteristics
 * **Average Capacity per Mini-Grid Cluster:** {format_capacity(mg['average_mini_grid_capacity_kw'])}
-* **Average Estimated Households per Mini-Grid Cluster:** {mg['average_mini_grid_households']:,} households
+* **Average Estimated Households per Mini-Grid Cluster:** {mg['average_mini_grid_households']:,} households{technical_scope_note("mini_grid_count", ["FinalElecCode2030", "Total_New_Capacity_kW", "Estimated_Connections_HH"])}
 
 #### Methodology
 Mini-grid count is calculated by counting settlement clusters where:
@@ -990,8 +1137,7 @@ Mini-grid count is calculated by counting settlement clusters where:
 
 This follows the current interpretation that each settlement cluster assigned to a mini-grid technology is counted as one mini-grid cluster. This should not be overinterpreted as a final engineered project count, because nearby settlements could potentially be combined into one mini-grid through separate post-processing.
 """
-            st.markdown(minigrid_response)
-            st.session_state.messages.append({"role": "assistant", "content": minigrid_response})
+            display_and_store_response(minigrid_response)
 
         elif is_multi_scenario_query:
             scenario_response = """### Multi-Scenario Comparison Not Yet Enabled
@@ -1000,8 +1146,7 @@ This version is currently locked to one active Mozambique electrification scenar
 
 Multi-scenario comparison is planned for a later version after deterministic formulas are validated across scenario files. The current version can answer national investment, estimated household-connection, population-summary, capacity, and mini-grid-count questions for the active scenario only.
 """
-            st.markdown(scenario_response)
-            st.session_state.messages.append({"role": "assistant", "content": scenario_response})
+            display_and_store_response(scenario_response)
 
         elif is_grid_line_query:
             grid_line_response = """### Grid-Line Length Query Not Yet Enabled
@@ -1012,13 +1157,13 @@ The next implementation step is to confirm whether to use `NewGridExtensionDist2
 
 The current version supports national-level investment, estimated household-connection, population-summary, capacity, and mini-grid-count outputs.
 """
-            st.markdown(grid_line_response)
-            st.session_state.messages.append({"role": "assistant", "content": grid_line_response})
+            display_and_store_response(grid_line_response)
 
         else:
             result_context = {
                 "scenario": active_scenario_code,
                 "scope": "national",
+                "response_mode": response_mode,
                 "calculation_type": "investment_connections_population_capacity_minigrid_count_and_admin1_province_summary",
                 "columns_used": [
                     "FinalElecCode2030",
@@ -1055,6 +1200,8 @@ The current version supports national-level investment, estimated household-conn
                     "estimated_household_connections": metrics["estimated_household_connections"],
                     "estimated_household_connections_by_year": metrics["estimated_household_connections_by_year"],
                     "estimated_household_connections_by_technology": metrics["estimated_household_connections_by_technology"],
+                    "average_cost_per_household_connection_usd": metrics["average_cost_per_household_connection_usd"],
+                    "average_cost_per_household_connection_by_technology_usd": metrics["average_cost_per_household_connection_by_technology_usd"],
                     "population_summary": metrics["population_summary"],
                     "capacity_by_technology_kw": metrics["capacity_by_technology_kw"],
                     "total_new_capacity_kw": metrics["total_new_capacity_kw"],
@@ -1067,6 +1214,7 @@ The current version supports national-level investment, estimated household-conn
                 model="gpt-5.4-mini",
                 messages=[
                     {"role": "system", "content": system_instruction},
+                    {"role": "system", "content": response_mode_instruction()},
                     {
                         "role": "system",
                         "content": f"DETERMINISTIC CONTEXT OBJECT: {json.dumps(result_context)}"
@@ -1081,6 +1229,8 @@ The current version supports national-level investment, estimated household-conn
 - Estimated Household Connections: {metrics['estimated_household_connections']:,} households
 - Estimated Household Connections by Year: {json.dumps(metrics['estimated_household_connections_by_year'])}
 - Estimated Household Connections by Technology: {json.dumps(metrics['estimated_household_connections_by_technology'])}
+- Average Cost per Household Connection: {metrics['average_cost_per_household_connection_usd']:,.2f} USD per household connection
+- Average Cost per Household Connection by Technology: {json.dumps(metrics['average_cost_per_household_connection_by_technology_usd'])}
 - Population Summary: {json.dumps(metrics['population_summary'])}
 - Capacity by Technology in kW: {json.dumps(metrics['capacity_by_technology_kw'])}
 - Total New Capacity in kW: {metrics['total_new_capacity_kw']:,.2f}
@@ -1112,6 +1262,7 @@ Your written text analysis and narrative descriptions MUST align strictly with t
 * **Estimated Household Connections (2030):** {metrics['estimated_household_connections']:,} households
 * **2025 Step Household Connections:** {metrics['estimated_household_connections_by_year']['2025']:,} households
 * **2030 Step Household Connections:** {metrics['estimated_household_connections_by_year']['2030']:,} households
+* **Average Cost per Household Connection:** {format_usd_per_connection(metrics['average_cost_per_household_connection_usd'])}
 
 #### 🏠 Estimated Household Connections by Technology
 * **Grid Densification:** {metrics['estimated_household_connections_by_technology']['grid_densification']:,} households
