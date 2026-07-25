@@ -1,4 +1,6 @@
 import streamlit as st
+import os
+import re
 import pandas as pd
 import numpy as np
 import openai
@@ -152,6 +154,20 @@ QUESTION_REGISTRY = {
         "scope": "national and Admin1",
         "columns_needed": ["NewGridExtensionDist2025", "NewGridExtensionDist2030"],
         "notes": "Grid-line distance columns still need output-format confirmation."
+    },
+    "policy_recommendation_guardrail": {
+        "status": "implemented",
+        "scope": "all enabled outputs",
+        "trigger_examples": [
+            "what should the government prioritize",
+            "which technology should Mozambique choose",
+            "what policy should be implemented",
+            "recommend an implementation pathway"
+        ],
+        "notes": (
+            "ChatOnSSET summarizes modelled scenario outputs but does not provide "
+            "policy prescriptions, technology-prioritization recommendations, or implementation advice."
+        )
     }
 }
 
@@ -326,17 +342,6 @@ def calculate_national_summary(processed_df):
             "standalone_solar": int(round(solar_hh)),
             "mini_grid": int(round(mini_hh))
         },
-        "average_cost_per_household_connection": {
-        "status": "implemented",
-        "scope": "national",
-        "columns_used": [
-            "Total_Investment_USD",
-            "Estimated_Connections_HH",
-            "FinalElecCode2030"
-        ],
-        "formula": "Average cost per household connection = modelled investment / estimated household connections.",
-        "notes": "Calculated nationally and by technology. Division-by-zero cases return 0."
-    },
     "population_summary": {
             "base_population": int(round(base_population)),
             "target_population_2030": int(round(target_population_2030)),
@@ -421,11 +426,122 @@ def format_capacity(value_kw):
     return f"{value_kw:,.2f} kW"
 
 
-# Global initialization.
-active_scenario_code = "mz-3-0_0_0_0_0_0"
+# Global initialization with experimental scenario selection.
+DEFAULT_SCENARIO_CODE = "mz-3-0_0_0_0_0_0"
+DATA_DIR = "data"
+SCENARIO_METADATA_FILE = os.path.join(DATA_DIR, "scenario_metadata.csv")
+
+
+@st.cache_data
+def discover_available_scenarios(data_dir=DATA_DIR, metadata_file=SCENARIO_METADATA_FILE):
+    """Discover available scenario CSVs and enrich them with optional metadata."""
+    metadata_by_code = {}
+
+    if os.path.exists(metadata_file):
+        metadata_df = pd.read_csv(metadata_file).fillna("")
+        for _, row in metadata_df.iterrows():
+            row_dict = row.to_dict()
+            scenario_code = str(
+                row_dict.get("scenario_code")
+                or row_dict.get("code")
+                or row_dict.get("file_name")
+                or ""
+            ).replace(".csv", "").strip()
+
+            if scenario_code:
+                metadata_by_code[scenario_code] = row_dict
+
+    discovered = []
+
+    if os.path.isdir(data_dir):
+        for file_name in sorted(os.listdir(data_dir)):
+            if not file_name.lower().endswith(".csv"):
+                continue
+            if file_name == os.path.basename(metadata_file):
+                continue
+
+            scenario_code = file_name[:-4]
+
+            # Only include valid Mozambique raw scenario result files.
+            # This excludes Madagascar files, summary files, country-input files,
+            # scenario_metadata.csv, and other helper CSVs in the data folder.
+            if not re.match(r"^mz-3-\d(?:_\d){5}$", scenario_code.lower()):
+                continue
+
+            metadata = metadata_by_code.get(scenario_code, {})
+
+            country = str(metadata.get("country") or "Mozambique").strip()
+            scenario_label = str(
+                metadata.get("scenario_label")
+                or metadata.get("label")
+                or metadata.get("description")
+                or scenario_code
+            ).strip()
+            scenario_notes = str(metadata.get("notes") or metadata.get("summary") or "").strip()
+
+            discovered.append({
+                "country": country,
+                "scenario_code": scenario_code,
+                "scenario_label": scenario_label,
+                "scenario_notes": scenario_notes,
+                "csv_path": os.path.join(data_dir, file_name),
+                "display_label": f"{country} — {scenario_label} ({scenario_code})"
+            })
+
+    if not discovered:
+        discovered.append({
+            "country": "Mozambique",
+            "scenario_code": DEFAULT_SCENARIO_CODE,
+            "scenario_label": "Default / baseline scenario",
+            "scenario_notes": "Fallback scenario. Add CSV files to the data folder to enable more options.",
+            "csv_path": os.path.join(data_dir, f"{DEFAULT_SCENARIO_CODE}.csv"),
+            "display_label": f"Mozambique — Default / baseline scenario ({DEFAULT_SCENARIO_CODE})"
+        })
+
+    return discovered
+
+
+available_scenarios = discover_available_scenarios()
+scenario_display_options = [scenario["display_label"] for scenario in available_scenarios]
+default_scenario_index = next(
+    (idx for idx, scenario in enumerate(available_scenarios) if scenario["scenario_code"] == DEFAULT_SCENARIO_CODE),
+    0
+)
+
+with st.sidebar:
+    st.title("🛰️ ChatOnSSET")
+    st.subheader("National Decision Support")
+    st.markdown("#### Scenario Selection")
+    selected_scenario_label = st.selectbox(
+        "Active scenario",
+        options=scenario_display_options,
+        index=default_scenario_index,
+        help=(
+            "Experimental selector. Add additional scenario CSV files to the data folder to test more scenarios. "
+            "Optional labels can be supplied in data/scenario_metadata.csv."
+        )
+    )
+
+selected_scenario = available_scenarios[scenario_display_options.index(selected_scenario_label)]
+active_scenario_code = selected_scenario["scenario_code"]
+active_scenario_path = selected_scenario["csv_path"]
+active_scenario_label = selected_scenario["scenario_label"]
+active_scenario_country = selected_scenario["country"]
+
+if st.session_state.get("last_active_scenario_code") != active_scenario_code:
+    st.session_state.messages = []
+    st.session_state.last_active_scenario_code = active_scenario_code
+
+with st.sidebar:
+    with st.expander("Active scenario details", expanded=False):
+        st.markdown(f"**Country:** {active_scenario_country}")
+        st.markdown(f"**Scenario code:** `{active_scenario_code}`")
+        st.markdown(f"**Scenario label:** {active_scenario_label}")
+        if selected_scenario.get("scenario_notes"):
+            st.markdown(f"**Notes:** {selected_scenario['scenario_notes']}")
 
 try:
-    df = load_scenario_and_process(f"data/{active_scenario_code}.csv")
+    df = load_scenario_and_process(active_scenario_path)
     metrics = calculate_national_summary(df)
 except FileNotFoundError:
     st.error(f"Please ensure {active_scenario_code}.csv is placed in your 'data/' folder.")
@@ -467,8 +583,8 @@ STRICT TECHNICAL RULES:
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
-    st.title("🛰️ ChatOnSSET")
-    st.subheader("National Decision Support")
+    st.divider()
+    st.markdown("#### Response Controls")
 
     if st.button("🗑️ Clear Chat History"):
         st.session_state.messages = []
@@ -493,7 +609,8 @@ with st.sidebar:
     st.divider()
     st.info(
         f"Status: Operational\n"
-        f"Test Scenario: {active_scenario_code}\n"
+        f"Active Scenario: {active_scenario_code}\n"
+        f"Scenario Label: {active_scenario_label}\n"
         f"Data Mode: Deterministic Python summaries\n"
         f"Response Mode: {response_mode}"
     )
@@ -778,6 +895,33 @@ if user_query:
             "km of"
         ]
 
+        policy_recommendation_keywords = [
+            "what should the government prioritize",
+            "what should government prioritize",
+            "which technology should mozambique choose",
+            "which technology should be prioritized",
+            "which technology should be prioritised",
+            "what policy should be implemented",
+            "what policy should mozambique implement",
+            "recommend a policy",
+            "recommend an implementation",
+            "implementation recommendation",
+            "policy recommendation",
+            "policy advice",
+            "what should policymakers do",
+            "what should policy makers do",
+            "best policy option",
+            "priority technology",
+            "prioritize mini-grid",
+            "prioritize mini grid",
+            "prioritise mini-grid",
+            "prioritise mini grid",
+            "prioritize grid",
+            "prioritise grid",
+            "prioritize standalone solar",
+            "prioritise standalone solar"
+        ]
+
         is_methodology_query = any(keyword in query_lower for keyword in methodology_keywords)
         is_investment_query = any(keyword in query_lower for keyword in investment_keywords)
         is_connection_query = any(keyword in query_lower for keyword in connection_keywords)
@@ -809,6 +953,9 @@ if user_query:
         )
         is_multi_scenario_query = any(keyword in query_lower for keyword in multi_scenario_keywords)
         is_grid_line_query = any(keyword in query_lower for keyword in grid_line_keywords)
+        is_policy_recommendation_query = any(
+            keyword in query_lower for keyword in policy_recommendation_keywords
+        )
 
         if is_small_talk:
             greeting_response = """I am ChatOnSSET, your national GEP/OnSSET scenario analysis assistant for Mozambique.
@@ -822,6 +969,22 @@ I can help you evaluate investment metrics, connection targets, population metri
 
 Please click one of the shortcuts above or enter an analytical question below to query the active scenario output."""
             display_and_store_response(greeting_response)
+
+        elif is_policy_recommendation_query:
+            policy_guardrail_response = f"""### Policy Recommendation Not Enabled
+
+This version of ChatOnSSET does not provide policy recommendations, technology-prioritization advice, or implementation prescriptions.
+
+It can summarize modelled scenario outputs from the active Mozambique GEP/OnSSET scenario, including investment, estimated household connections, population, capacity, mini-grid settlement-cluster counts, and province-level summaries.
+
+Please ask a data-focused question, such as:
+
+* What is the investment by technology?
+* How many estimated household connections are achieved by 2030?
+* What is the capacity by technology?
+* What is the province summary for Nampula?{technical_scope_note("policy_recommendation_guardrail", ["FinalElecCode2030", "Total_Investment_USD", "Estimated_Connections_HH", "PopStartYear", "Pop2030", "Total_New_Capacity_kW"])}
+"""
+            display_and_store_response(policy_guardrail_response)
 
         elif is_methodology_query:
             mg = metrics["mini_grid_summary"]
@@ -1140,11 +1303,13 @@ This follows the current interpretation that each settlement cluster assigned to
             display_and_store_response(minigrid_response)
 
         elif is_multi_scenario_query:
-            scenario_response = """### Multi-Scenario Comparison Not Yet Enabled
+            scenario_response = f"""### Multi-Scenario Comparison Not Yet Enabled
 
-This version is currently locked to one active Mozambique electrification scenario: `mz-3-0_0_0_0_0_0`.
+This version now supports selecting one active scenario at a time, but it does not yet compare multiple scenarios in a single response.
 
-Multi-scenario comparison is planned for a later version after deterministic formulas are validated across scenario files. The current version can answer national investment, estimated household-connection, population-summary, capacity, and mini-grid-count questions for the active scenario only.
+**Current active scenario:** `{active_scenario_code}`
+
+Please select the scenario you want to inspect from the sidebar, then ask a data-focused question about that active scenario. Multi-scenario comparison is planned for a later version after deterministic formulas are validated across scenario files.
 """
             display_and_store_response(scenario_response)
 
@@ -1162,6 +1327,8 @@ The current version supports national-level investment, estimated household-conn
         else:
             result_context = {
                 "scenario": active_scenario_code,
+                "scenario_label": active_scenario_label,
+                "scenario_country": active_scenario_country,
                 "scope": "national",
                 "response_mode": response_mode,
                 "calculation_type": "investment_connections_population_capacity_minigrid_count_and_admin1_province_summary",
