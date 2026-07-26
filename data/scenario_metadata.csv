@@ -1,0 +1,4 @@
+scenario_code,scenario_label,country,notes
+mz-3-0_0_0_0_0_0,Baseline / Default Scenario,Mozambique,Current default test scenario
+mz-3-0_0_0_0_1_1,Alternative Scenario 1,Mozambique,Used to test scenario switching
+mz-3-0_0_1_1_0_1,Alternative Scenario 2,Mozambique,Used to test scenario switching

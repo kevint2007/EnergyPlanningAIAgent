@@ -174,7 +174,7 @@ QUESTION_REGISTRY = {
 
 @st.cache_data
 def load_scenario_and_process(file_path):
-    raw_df = pd.read_csv(file_path)
+    raw_df = pd.read_csv(file_path, usecols=REQUIRED_COLUMNS)
 
     missing_columns = [col for col in REQUIRED_COLUMNS if col not in raw_df.columns]
     if missing_columns:
