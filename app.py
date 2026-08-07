@@ -37,6 +37,7 @@ class OnSSETNarrative(BaseModel):
 # Required columns for current deterministic V4 baseline.
 REQUIRED_COLUMNS = [
     "FinalElecCode2030",
+    "MinimumOverallCode2030",
     "InvestmentCost2025",
     "InvestmentCost2030",
     "ElecStatusIn2025",
@@ -47,6 +48,8 @@ REQUIRED_COLUMNS = [
     "Pop2030",
     "ElecPopCalib",
     "CurrentMVLineDist",
+    "EnergyPerSettlement2025",
+    "EnergyPerSettlement2030",
     "NewCapacity2025",
     "NewCapacity2030",
     "Admin1"
@@ -149,6 +152,50 @@ QUESTION_REGISTRY = {
         "formula": "Filter the processed dataframe by Admin1, then reuse the same deterministic summary engine used for national calculations.",
         "notes": "Province summaries support investment, estimated household connections, population, capacity, and mini-grid settlement-cluster count."
     },
+    "shs_within_5km_mv": {
+        "status": "implemented",
+        "scope": "national",
+        "columns_used": [
+            "FinalElecCode2030",
+            "CurrentMVLineDist",
+            "Estimated_Connections_HH"
+        ],
+        "formula": "Filter settlement clusters where FinalElecCode2030 == 3 and CurrentMVLineDist <= 5.",
+        "notes": "Reports settlement-cluster count and estimated SHS household connections within 5 km of existing MV lines."
+    },
+    "large_settlements_shs_least_cost": {
+        "status": "implemented",
+        "scope": "national",
+        "columns_used": [
+            "MinimumOverallCode2030",
+            "Pop2030",
+            "NumPeoplePerHH"
+        ],
+        "formula": "Filter settlement clusters where MinimumOverallCode2030 == 3 and Pop2030 / NumPeoplePerHH > 100.",
+        "notes": "Uses MinimumOverallCode2030 because the question asks for SHS as the least-cost technology."
+    },
+    "technology_split_settlement_size": {
+        "status": "implemented",
+        "scope": "national",
+        "columns_used": [
+            "FinalElecCode2030",
+            "Pop2030",
+            "NumPeoplePerHH"
+        ],
+        "formula": "Filter settlement clusters where 100 <= Pop2030 / NumPeoplePerHH <= 1000, then group by user-facing FinalElecCode2030 technology category.",
+        "notes": "Reports final 2030 technology split by settlement-cluster count and estimated households. Mini-grid subcodes 5, 6, and 7 are collapsed into one mini-grid category."
+    },
+    "mini_grid_annual_demand": {
+        "status": "implemented",
+        "scope": "national",
+        "columns_used": [
+            "FinalElecCode2030",
+            "EnergyPerSettlement2025",
+            "EnergyPerSettlement2030"
+        ],
+        "formula": "Filter settlement clusters where FinalElecCode2030 is in [5, 6, 7], then sum EnergyPerSettlement2025, EnergyPerSettlement2030, and the net difference EnergyPerSettlement2030 - EnergyPerSettlement2025.",
+        "notes": "Reports values in kWh/year using EnergyPerSettlement2025 and EnergyPerSettlement2030. Positive incremental demand is also tracked separately because some rows can decrease between periods."
+    },
     "grid_line_km": {
         "status": "planned",
         "scope": "national and Admin1",
@@ -233,6 +280,22 @@ def load_scenario_and_process(file_path):
     processed_df["Total_New_Capacity_kW"] = (
         processed_df["NewCapacity2025"] * processed_df["ElecStatusIn2025"]
     ) + processed_df["NewCapacity2030"]
+
+    # Settlement-size estimate used for Andreas stress-test questions.
+    processed_df["Estimated_Households_2030"] = (
+        processed_df["Pop2030"] / safe_hh_denom
+    ).fillna(0)
+
+    # Annual-demand differences in kWh/year based on GEP/OnSSET column documentation.
+    # Net difference reconciles directly with total 2030 demand minus total 2025 demand.
+    processed_df["Net_Additional_EnergyPerSettlement_2025_2030"] = (
+        processed_df["EnergyPerSettlement2030"] - processed_df["EnergyPerSettlement2025"]
+    )
+
+    # Positive incremental demand is also kept because some rows may decrease between periods.
+    processed_df["Positive_Additional_EnergyPerSettlement_2025_2030"] = (
+        processed_df["EnergyPerSettlement2030"] - processed_df["EnergyPerSettlement2025"]
+    ).clip(lower=0)
 
     return processed_df.copy()
 
@@ -362,6 +425,125 @@ def calculate_national_summary(processed_df):
         },
         "dominant_technology_by_capex": dominant_tech
     }
+
+
+TECH_CODE_LABELS = {
+    1: "Grid Densification",
+    2: "Grid Extension",
+    3: "Standalone Solar Systems (SHS)",
+    5: "Mini-Grid Infrastructure",
+    6: "Mini-Grid Infrastructure",
+    7: "Mini-Grid Infrastructure"
+}
+
+
+def get_technology_label(code):
+    """Return the user-facing technology label for an OnSSET technology code."""
+    try:
+        code_int = int(code)
+    except (TypeError, ValueError):
+        return f"Unknown / Other ({code})"
+
+    return TECH_CODE_LABELS.get(code_int, f"Unknown / Other ({code_int})")
+
+
+def calculate_shs_within_5km_mv(processed_df):
+    """Calculate SHS settlement clusters and household connections within 5 km of existing MV lines."""
+    filtered_df = processed_df[
+        (processed_df["FinalElecCode2030"] == 3)
+        & (processed_df["CurrentMVLineDist"] <= 5)
+    ].copy()
+
+    return {
+        "settlement_cluster_count": int(len(filtered_df)),
+        "estimated_household_connections": int(round(filtered_df["Estimated_Connections_HH"].sum())),
+        "estimated_2030_step_household_connections": int(round(filtered_df["Estimated_Connections_HH_2030"].sum())),
+        "average_distance_to_mv_km": float(filtered_df["CurrentMVLineDist"].mean()) if len(filtered_df) > 0 else 0.0
+    }
+
+
+def calculate_large_settlements_shs_least_cost(processed_df):
+    """Count settlements with more than 100 households where SHS is the 2030 least-cost option."""
+    filtered_df = processed_df[
+        (processed_df["MinimumOverallCode2030"] == 3)
+        & (processed_df["Estimated_Households_2030"] > 100)
+    ].copy()
+
+    return {
+        "settlement_cluster_count": int(len(filtered_df)),
+        "estimated_households_2030": int(round(filtered_df["Estimated_Households_2030"].sum())),
+        "average_households_per_cluster": int(round(filtered_df["Estimated_Households_2030"].mean())) if len(filtered_df) > 0 else 0
+    }
+
+
+def calculate_technology_split_for_mid_size_settlements(processed_df):
+    """Calculate final technology split for settlements with 100 to 1000 estimated households in 2030."""
+    filtered_df = processed_df[
+        (processed_df["Estimated_Households_2030"] >= 100)
+        & (processed_df["Estimated_Households_2030"] <= 1000)
+    ].copy()
+
+    total_clusters = int(len(filtered_df))
+    total_households = float(filtered_df["Estimated_Households_2030"].sum())
+
+    if filtered_df.empty:
+        return {
+            "settlement_cluster_count": total_clusters,
+            "estimated_households_2030": int(round(total_households)),
+            "technology_split": []
+        }
+
+    # Collapse OnSSET mini-grid subcodes 5, 6, and 7 into one user-facing mini-grid category.
+    filtered_df["FinalTechnologyLabel2030"] = filtered_df["FinalElecCode2030"].apply(get_technology_label)
+
+    split = []
+    grouped = filtered_df.groupby("FinalTechnologyLabel2030", dropna=False)
+    for technology_label, group in grouped:
+        cluster_count = int(len(group))
+        households = float(group["Estimated_Households_2030"].sum())
+        technology_codes = sorted([
+            int(code)
+            for code in group["FinalElecCode2030"].dropna().unique().tolist()
+        ])
+        split.append({
+            "technology_label": str(technology_label),
+            "technology_codes": technology_codes,
+            "settlement_cluster_count": cluster_count,
+            "cluster_share_pct": float((cluster_count / total_clusters) * 100) if total_clusters else 0.0,
+            "estimated_households_2030": int(round(households)),
+            "household_share_pct": float((households / total_households) * 100) if total_households else 0.0
+        })
+
+    split = sorted(split, key=lambda item: item["settlement_cluster_count"], reverse=True)
+
+    return {
+        "settlement_cluster_count": total_clusters,
+        "estimated_households_2030": int(round(total_households)),
+        "technology_split": split
+    }
+
+
+def calculate_mini_grid_annual_demand(processed_df):
+    """Calculate annual demand values for settlement clusters assigned to mini-grid technologies in 2030."""
+    mini_grid_df = processed_df[processed_df["FinalElecCode2030"].isin([5, 6, 7])].copy()
+
+    demand_2025 = float(mini_grid_df["EnergyPerSettlement2025"].sum())
+    demand_2030 = float(mini_grid_df["EnergyPerSettlement2030"].sum())
+    net_additional_demand = float(mini_grid_df["Net_Additional_EnergyPerSettlement_2025_2030"].sum())
+    positive_incremental_demand = float(mini_grid_df["Positive_Additional_EnergyPerSettlement_2025_2030"].sum())
+
+    return {
+        "mini_grid_settlement_cluster_count": int(len(mini_grid_df)),
+        "annual_demand_2025_native_units": demand_2025,
+        "annual_demand_2030_native_units": demand_2030,
+        "net_additional_annual_demand_native_units": net_additional_demand,
+        "positive_incremental_annual_demand_native_units": positive_incremental_demand
+    }
+
+
+def format_native_energy(value):
+    """Format EnergyPerSettlement outputs in confirmed kWh/year units."""
+    return f"{value:,.2f} kWh/year"
 
 
 def normalize_text(value):
@@ -563,6 +745,9 @@ DATA DICTIONARY MAPPING:
 - Pop2030: Projected population of the settlement at the end year of the analysis.
 - ElecPopCalib: Calibrated electrified population at the start of analysis.
 - CurrentMVLineDist: Distance in km to nearest existing medium-voltage line.
+- EnergyPerSettlement2025: Modelled annual energy demand per settlement for 2025 in kWh/year.
+- EnergyPerSettlement2030: Modelled annual energy demand per settlement for 2030 in kWh/year.
+- MinimumOverallCode2030: Least-cost technology code before final scenario assignment logic.
 - Admin1: Province or first-level administrative unit used for province summaries.
 - FinalElecCode2030: Final selected electrification technology.
     * Code 1 = Grid Densification
@@ -664,6 +849,10 @@ if show_methodology:
         * **Near-Grid Unelectrified Population Filter:** `CurrentMVLineDist <= 10`
         * **Capacity Formula:** `(NewCapacity2025 * ElecStatusIn2025) + NewCapacity2030`
         * **Mini-Grid Count Formula:** Count settlement clusters where `FinalElecCode2030` is in `[5, 6, 7]`
+        * **SHS Near MV Filter:** `FinalElecCode2030 == 3` and `CurrentMVLineDist <= 5`
+        * **Large Settlement SHS Least-Cost Filter:** `MinimumOverallCode2030 == 3` and `(Pop2030 / NumPeoplePerHH) > 100`
+        * **Mid-Size Settlement Technology Split Filter:** `100 <= (Pop2030 / NumPeoplePerHH) <= 1000`
+        * **Mini-Grid Annual Demand Filter:** `FinalElecCode2030 in [5, 6, 7]`, using `EnergyPerSettlement2025` and `EnergyPerSettlement2030`
         * **Average Cost Formula:** `Modelled investment / estimated household connections`
         """)
         st.markdown("#### Current Question Registry")
@@ -861,6 +1050,50 @@ if user_query:
             "number of minigrids"
         ]
 
+        shs_within_mv_keywords = [
+            "solar home systems",
+            "shs",
+            "standalone solar",
+            "within 5 km",
+            "within 5km",
+            "5 km",
+            "5km",
+            "existing mv",
+            "mv lines",
+            "mv line"
+        ]
+
+        large_settlement_shs_keywords = [
+            "more than 100 households",
+            "over 100 households",
+            ">100 households",
+            "greater than 100 households",
+            "least-cost",
+            "least cost",
+            "shs as the least",
+            "solar home systems are least"
+        ]
+
+        technology_split_size_keywords = [
+            "technology split",
+            "technology mix",
+            "split for settlements",
+            "100-1000 households",
+            "100 to 1000 households",
+            "100–1000 households",
+            "between 100 and 1000 households"
+        ]
+
+        mini_grid_demand_keywords = [
+            "additional annual demand",
+            "annual demand",
+            "demand to be supplied by mini-grids",
+            "demand supplied by mini-grids",
+            "demand supplied by minigrids",
+            "mini-grid demand",
+            "minigrid demand"
+        ]
+
         mozambique_provinces = [
             "nampula",
             "niassa",
@@ -929,6 +1162,24 @@ if user_query:
         is_population_query = any(keyword in query_lower for keyword in population_keywords)
         is_capacity_query = any(keyword in query_lower for keyword in capacity_keywords)
         is_mini_grid_count_query = any(keyword in query_lower for keyword in mini_grid_count_keywords)
+        is_shs_within_mv_query = (
+            ("solar home" in query_lower or "shs" in query_lower or "standalone solar" in query_lower)
+            and ("5 km" in query_lower or "5km" in query_lower or "within 5" in query_lower)
+            and ("mv" in query_lower or "medium voltage" in query_lower)
+        )
+        is_large_settlement_shs_query = (
+            ("shs" in query_lower or "solar home" in query_lower or "standalone solar" in query_lower)
+            and ("100 households" in query_lower or "more than 100" in query_lower or "over 100" in query_lower or ">100" in query_lower)
+            and ("least-cost" in query_lower or "least cost" in query_lower or "least-cost technology" in query_lower)
+        )
+        is_technology_split_size_query = (
+            ("technology split" in query_lower or "technology mix" in query_lower)
+            and ("100-1000" in query_lower or "100 to 1000" in query_lower or "100–1000" in query_lower or "between 100 and 1000" in query_lower)
+        )
+        is_mini_grid_demand_query = (
+            ("annual demand" in query_lower or "additional annual demand" in query_lower)
+            and ("mini-grid" in query_lower or "mini grid" in query_lower or "minigrid" in query_lower)
+        )
 
         is_near_grid_population_query = is_population_query and (
             "10 km" in query_lower
@@ -982,7 +1233,9 @@ Please ask a data-focused question, such as:
 * What is the investment by technology?
 * How many estimated household connections are achieved by 2030?
 * What is the capacity by technology?
-* What is the province summary for Nampula?{technical_scope_note("policy_recommendation_guardrail", ["FinalElecCode2030", "Total_Investment_USD", "Estimated_Connections_HH", "PopStartYear", "Pop2030", "Total_New_Capacity_kW"])}
+* What is the province summary for Nampula?
+* How many SHS are within 5 km of existing MV lines?
+* What is the technology split for settlements with 100–1000 households?{technical_scope_note("policy_recommendation_guardrail", ["FinalElecCode2030", "Total_Investment_USD", "Estimated_Connections_HH", "PopStartYear", "Pop2030", "Total_New_Capacity_kW"])}
 """
             display_and_store_response(policy_guardrail_response)
 
@@ -1130,6 +1383,108 @@ Total estimated household connections are calculated using:
 The resulting household values are grouped by `FinalElecCode2030` technology category.
 """
             display_and_store_response(connections_response)
+
+        elif is_shs_within_mv_query and not is_province_query:
+            shs_mv = calculate_shs_within_5km_mv(df)
+
+            shs_mv_response = f"""### SHS Within 5 km of Existing MV Lines
+
+#### National Result
+* **SHS Settlement Clusters Within 5 km of Existing MV Lines:** {shs_mv['settlement_cluster_count']:,}
+* **Estimated SHS Household Connections in These Clusters:** {shs_mv['estimated_household_connections']:,} households
+* **Estimated 2030-Step SHS Household Connections in These Clusters:** {shs_mv['estimated_2030_step_household_connections']:,} households
+* **Average Distance to Existing MV Line:** {shs_mv['average_distance_to_mv_km']:,.2f} km{technical_scope_note("shs_within_5km_mv", ["FinalElecCode2030", "CurrentMVLineDist", "Estimated_Connections_HH", "Estimated_Connections_HH_2030"])}
+
+#### Methodology
+This filters the active scenario file to settlement clusters where:
+
+`FinalElecCode2030 == 3`
+
+and
+
+`CurrentMVLineDist <= 5`
+
+The household values are estimated from person-level connection outputs divided by `NumPeoplePerHH`.
+"""
+            display_and_store_response(shs_mv_response)
+
+        elif is_large_settlement_shs_query and not is_province_query:
+            shs_large = calculate_large_settlements_shs_least_cost(df)
+
+            shs_large_response = f"""### Large Settlements Where SHS Is Least-Cost
+
+#### National Result
+* **Settlement Clusters With More Than 100 Households Where SHS Is Least-Cost:** {shs_large['settlement_cluster_count']:,}
+* **Estimated 2030 Households Represented:** {shs_large['estimated_households_2030']:,} households
+* **Average Estimated Households per Cluster:** {shs_large['average_households_per_cluster']:,} households{technical_scope_note("large_settlements_shs_least_cost", ["MinimumOverallCode2030", "Pop2030", "NumPeoplePerHH", "Estimated_Households_2030"])}
+
+#### Methodology
+This uses `MinimumOverallCode2030` because the question asks where SHS is the least-cost technology. It filters settlement clusters where:
+
+`MinimumOverallCode2030 == 3`
+
+and
+
+`Pop2030 / NumPeoplePerHH > 100`
+"""
+            display_and_store_response(shs_large_response)
+
+        elif is_technology_split_size_query and not is_province_query:
+            split_result = calculate_technology_split_for_mid_size_settlements(df)
+            split_lines = []
+
+            for item in split_result["technology_split"]:
+                split_lines.append(
+                    f"* **{item['technology_label']}:** "
+                    f"{item['settlement_cluster_count']:,} clusters "
+                    f"({item['cluster_share_pct']:.1f}% of clusters), "
+                    f"{item['estimated_households_2030']:,} estimated households "
+                    f"({item['household_share_pct']:.1f}% of households)"
+                )
+
+            split_response = f"""### Technology Split for Settlements With 100–1000 Households
+
+#### Fixed Settlement-Size Cohort
+* **Settlement Clusters With 100–1000 Estimated Households:** {split_result['settlement_cluster_count']:,}
+* **Estimated 2030 Households in This Group:** {split_result['estimated_households_2030']:,} households
+* **Cohort Note:** This cohort is defined by estimated 2030 household count, so it may remain constant across scenarios while the technology split changes.
+
+#### Final 2030 Technology Split
+{chr(10).join(split_lines) if split_lines else '* No settlement clusters matched this filter.'}{technical_scope_note("technology_split_settlement_size", ["FinalElecCode2030", "Pop2030", "NumPeoplePerHH", "Estimated_Households_2030"])}
+
+#### Methodology
+This estimates settlement size as:
+
+`Pop2030 / NumPeoplePerHH`
+
+It then filters settlement clusters where the estimated household count is between 100 and 1000, and groups the result by `FinalElecCode2030`.
+"""
+            display_and_store_response(split_response)
+
+        elif is_mini_grid_demand_query and not is_province_query:
+            mg_demand = calculate_mini_grid_annual_demand(df)
+
+            mg_demand_response = f"""### Additional Annual Demand Supplied by Mini-Grids by 2030
+
+#### Mini-Grid Demand Summary
+* **Mini-Grid Settlement Clusters:** {mg_demand['mini_grid_settlement_cluster_count']:,}
+* **Total Annual Demand in 2025 for These Clusters:** {format_native_energy(mg_demand['annual_demand_2025_native_units'])}
+* **Total Annual Demand in 2030 for These Clusters:** {format_native_energy(mg_demand['annual_demand_2030_native_units'])}
+* **Net Additional Annual Demand From 2025 to 2030:** {format_native_energy(mg_demand['net_additional_annual_demand_native_units'])}
+* **Positive Incremental Annual Demand Before Offsetting Local Decreases:** {format_native_energy(mg_demand['positive_incremental_annual_demand_native_units'])}{technical_scope_note("mini_grid_annual_demand", ["FinalElecCode2030", "EnergyPerSettlement2025", "EnergyPerSettlement2030", "Net_Additional_EnergyPerSettlement_2025_2030", "Positive_Additional_EnergyPerSettlement_2025_2030"])}
+
+#### Methodology
+This filters settlement clusters assigned to mini-grid technologies where:
+
+`FinalElecCode2030 in [5, 6, 7]`
+
+It then calculates net additional annual demand as:
+
+`sum(EnergyPerSettlement2030) - sum(EnergyPerSettlement2025)`
+
+The positive incremental value separately sums only rows where `EnergyPerSettlement2030 - EnergyPerSettlement2025` is positive. `EnergyPerSettlement2025` and `EnergyPerSettlement2030` are interpreted as annual electricity demand in kWh/year.
+"""
+            display_and_store_response(mg_demand_response)
 
         elif is_province_query:
             if province_match is None:
@@ -1344,6 +1699,9 @@ The current version supports national-level investment, estimated household-conn
                     "Pop2030",
                     "ElecPopCalib",
                     "CurrentMVLineDist",
+                    "EnergyPerSettlement2025",
+                    "EnergyPerSettlement2030",
+                    "MinimumOverallCode2030",
                     "NewCapacity2025",
                     "NewCapacity2030",
                     "Admin1"
@@ -1357,7 +1715,11 @@ The current version supports national-level investment, estimated household-conn
                     "unelectrified_within_10km_mv": "Filter unelectrified population where CurrentMVLineDist <= 10",
                     "new_capacity_kw": "(NewCapacity2025 * ElecStatusIn2025) + NewCapacity2030",
                     "capacity_by_technology": "Group Total_New_Capacity_kW by FinalElecCode2030 technology category",
-                    "mini_grid_count": "Count settlement clusters where FinalElecCode2030 is in [5, 6, 7]"
+                    "mini_grid_count": "Count settlement clusters where FinalElecCode2030 is in [5, 6, 7]",
+                    "shs_within_5km_mv": "Filter FinalElecCode2030 == 3 and CurrentMVLineDist <= 5",
+                    "large_settlements_shs_least_cost": "Filter MinimumOverallCode2030 == 3 and Pop2030 / NumPeoplePerHH > 100",
+                    "technology_split_settlement_size": "Filter 100 <= Pop2030 / NumPeoplePerHH <= 1000 and group by FinalElecCode2030",
+                    "mini_grid_annual_demand": "Filter FinalElecCode2030 in [5, 6, 7], then calculate total 2025 demand, total 2030 demand, net additional demand, and positive incremental demand"
                 },
                 "results": {
                     "grid_densification_investment_usd": metrics["grid_densification_investment_usd"],
