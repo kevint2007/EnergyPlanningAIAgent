@@ -101,6 +101,7 @@ This structure reduces the risk of hallucinated numbers and makes the prototype 
 ---
 
 ## Data Setup
+## Data Setup
 
 Large scenario CSV files are not included in this repository.
 
@@ -118,68 +119,101 @@ EnergyPlanningAIAgent/
 │   └── mz-3-0_0_1_1_0_1.csv
 ├── docs/
 └── README.md
+```
 
-Running ChatOnSSET Locally
+See:
+
+```text
+data/README.md
+```
+
+for additional data setup notes.
+
+---
+
+## Running ChatOnSSET Locally
 
 To run ChatOnSSET locally, you need:
 
-Access to this GitHub repository.
-A local Python environment.
-The required GEP/OnSSET scenario output CSV files.
-An OpenAI API key stored in Streamlit secrets.
-1. Clone the repository
+1. Access to this GitHub repository.
+2. A local Python environment.
+3. The required GEP/OnSSET scenario output CSV files.
+4. An OpenAI API key stored in Streamlit secrets.
+
+### 1. Clone the repository
+
+```bash
 git clone https://github.com/kevint2007/EnergyPlanningAIAgent.git
 cd EnergyPlanningAIAgent
-2. Create or activate a Python environment
+```
+
+### 2. Create or activate a Python environment
 
 Using conda:
 
+```bash
 conda create -n chatonsset python=3.10
 conda activate chatonsset
+```
 
 Install the main packages:
 
+```bash
 pip install streamlit pandas numpy openai pydantic
+```
 
 Depending on the environment, additional OnSSET-related dependencies may be needed if users plan to run the original OnSSET notebooks. For the ChatOnSSET Streamlit prototype, the main entry point is:
 
+```text
 app.py
-3. Add scenario CSV files
+```
 
-Place the required public GEP/OnSSET scenario output files inside the data/ folder.
+### 3. Add scenario CSV files
+
+Place the required public GEP/OnSSET scenario output files inside the `data/` folder.
 
 The app uses:
 
+```text
 data/scenario_metadata.csv
+```
 
 to display human-readable scenario names and descriptions.
 
-4. Add OpenAI API key to Streamlit secrets
+### 4. Add OpenAI API key to Streamlit secrets
 
 Create this folder and file if they do not already exist:
 
+```text
 .streamlit/secrets.toml
+```
 
 Add:
 
+```toml
 OPENAI_API_KEY = "your-api-key-here"
+```
 
-Do not commit .streamlit/secrets.toml to GitHub.
+Do not commit `.streamlit/secrets.toml` to GitHub.
 
-5. Run the Streamlit app
+### 5. Run the Streamlit app
+
+```bash
 streamlit run app.py
+```
 
 The app should open in a local browser window.
 
-6. Select a scenario and ask a supported question
+### 6. Select a scenario and ask a supported question
 
 Once the app opens:
 
-Select an active scenario from the sidebar.
-Ask one of the supported analytical questions.
+1. Select an active scenario from the sidebar.
+2. Ask one of the supported analytical questions.
 
 Example questions:
 
+```text
 What is the national investment required by technology by 2030?
 
 What is the additional annual demand to be supplied by mini-grids by 2030?
@@ -187,11 +221,83 @@ What is the additional annual demand to be supplied by mini-grids by 2030?
 What is the technology split for settlements with 100-1000 households?
 
 How many Solar Home Systems are to be deployed within 5 km of existing MV lines?
-Current Limitations
-The prototype currently focuses on selected Mozambique GEP/OnSSET scenario outputs.
-Scenario descriptions are currently manually documented in scenario_metadata.csv.
-The app does not provide policy recommendations or implementation prescriptions.
-The LLM does not calculate numerical outputs; it explains values calculated by Python.
-New analytical questions require explicit implementation in the question registry.
-Local scenario CSV files are not included in this repository and must be set up separately.
-The prototype is not yet a deployed multi-country production system.
+```
+
+---
+
+## Current Limitations
+
+- The prototype currently focuses on selected Mozambique GEP/OnSSET scenario outputs.
+- Scenario descriptions are currently manually documented in `scenario_metadata.csv`.
+- The app does not provide policy recommendations or implementation prescriptions.
+- The LLM does not calculate numerical outputs; it explains values calculated by Python.
+- New analytical questions require explicit implementation in the question registry.
+- Local scenario CSV files are not included in this repository and must be set up separately.
+- The prototype is not yet a deployed multi-country production system.
+
+---
+
+## Scaling Considerations
+
+Scaling ChatOnSSET beyond the current prototype would require:
+
+- Standardized scenario metadata across more scenarios and countries.
+- Validation of required columns across country output files.
+- Expanded testing across scenario files.
+- Additional question modules.
+- Improved deployment architecture.
+- Possible cloud or server hosting.
+- Clearer user-facing documentation.
+- Defined governance for supported calculations and limitations.
+
+See:
+
+```text
+docs/scaling_notes.md
+```
+
+for more detail.
+
+---
+
+## Attribution
+
+Initial ChatOnSSET prototype developed by Kevin Theivendran, with feedback from members of SEforALL’s Integrated Energy Planning team.
+
+This repository builds on the open-source OnSSET project structure.
+
+---
+
+## Original OnSSET Project Background
+
+OnSSET is the Open Source Spatial Electrification Tool. The original OnSSET workflow uses Python and Jupyter notebooks for geospatial electrification modelling.
+
+The original workflow includes:
+
+1. Creating settlement-level input files with GIS data.
+2. Running calibration notebooks to calibrate start-year information.
+3. Running scenario notebooks for electrification analysis.
+
+This repository retains parts of the original OnSSET project structure because ChatOnSSET was developed as a prototype layer around OnSSET/GEP scenario outputs.
+
+For the original OnSSET installation workflow, users should refer to the official OnSSET documentation and community resources.
+
+---
+
+## Original OnSSET Installation Context
+
+The original OnSSET repository can be run using interactive Jupyter notebooks. In the original workflow, users first create the input file with GIS data extracted for each settlement, then run calibration and scenario notebooks.
+
+Typical original OnSSET notebooks include:
+
+- `OnSSET_Calibration.ipynb`
+- `OnSSET_Scenarios.ipynb`
+- `OnSSET_Scenarios_MultipleTimeSteps.ipynb`
+
+These files are retained in this repository as part of the inherited OnSSET project structure.
+
+The main ChatOnSSET prototype entry point is:
+
+```text
+app.py
+```
