@@ -106,9 +106,92 @@ Large scenario CSV files are not included in this repository.
 
 To run ChatOnSSET locally, place the required public GEP/OnSSET scenario output files in the `data/` folder. The app uses `data/scenario_metadata.csv` to display scenario labels and descriptions.
 
-The current prototype expects selected Mozambique scenario output files using the scenario-code structure documented in the project files.
-
-See:
+Example expected structure:
 
 ```text
-data/README.md
+EnergyPlanningAIAgent/
+├── app.py
+├── data/
+│   ├── scenario_metadata.csv
+│   ├── mz-3-0_0_0_0_0_0.csv
+│   ├── mz-3-0_0_0_0_1_1.csv
+│   └── mz-3-0_0_1_1_0_1.csv
+├── docs/
+└── README.md
+
+Running ChatOnSSET Locally
+
+To run ChatOnSSET locally, you need:
+
+Access to this GitHub repository.
+A local Python environment.
+The required GEP/OnSSET scenario output CSV files.
+An OpenAI API key stored in Streamlit secrets.
+1. Clone the repository
+git clone https://github.com/kevint2007/EnergyPlanningAIAgent.git
+cd EnergyPlanningAIAgent
+2. Create or activate a Python environment
+
+Using conda:
+
+conda create -n chatonsset python=3.10
+conda activate chatonsset
+
+Install the main packages:
+
+pip install streamlit pandas numpy openai pydantic
+
+Depending on the environment, additional OnSSET-related dependencies may be needed if users plan to run the original OnSSET notebooks. For the ChatOnSSET Streamlit prototype, the main entry point is:
+
+app.py
+3. Add scenario CSV files
+
+Place the required public GEP/OnSSET scenario output files inside the data/ folder.
+
+The app uses:
+
+data/scenario_metadata.csv
+
+to display human-readable scenario names and descriptions.
+
+4. Add OpenAI API key to Streamlit secrets
+
+Create this folder and file if they do not already exist:
+
+.streamlit/secrets.toml
+
+Add:
+
+OPENAI_API_KEY = "your-api-key-here"
+
+Do not commit .streamlit/secrets.toml to GitHub.
+
+5. Run the Streamlit app
+streamlit run app.py
+
+The app should open in a local browser window.
+
+6. Select a scenario and ask a supported question
+
+Once the app opens:
+
+Select an active scenario from the sidebar.
+Ask one of the supported analytical questions.
+
+Example questions:
+
+What is the national investment required by technology by 2030?
+
+What is the additional annual demand to be supplied by mini-grids by 2030?
+
+What is the technology split for settlements with 100-1000 households?
+
+How many Solar Home Systems are to be deployed within 5 km of existing MV lines?
+Current Limitations
+The prototype currently focuses on selected Mozambique GEP/OnSSET scenario outputs.
+Scenario descriptions are currently manually documented in scenario_metadata.csv.
+The app does not provide policy recommendations or implementation prescriptions.
+The LLM does not calculate numerical outputs; it explains values calculated by Python.
+New analytical questions require explicit implementation in the question registry.
+Local scenario CSV files are not included in this repository and must be set up separately.
+The prototype is not yet a deployed multi-country production system.
