@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 # --- 1. CONFIG & DATA PREPROCESSING ---
 st.set_page_config(
-    page_title="ChatOnSSET: National Planning Engine",
+    page_title="ChatOnSSET: Scenario Analysis Prototype",
     layout="wide",
     page_icon="🛰️"
 )
@@ -541,9 +541,126 @@ def calculate_mini_grid_annual_demand(processed_df):
     }
 
 
+def is_missing_number(value):
+    """Return True when a scalar numeric value is missing."""
+    try:
+        return value is None or pd.isna(value)
+    except (TypeError, ValueError):
+        return value is None
+
+
+def format_count(value, unit=None):
+    """Format whole-number counts with commas and optional units."""
+    if is_missing_number(value):
+        return f"N/A {unit}" if unit else "N/A"
+
+    formatted = f"{float(value):,.0f}"
+    return f"{formatted} {unit}" if unit else formatted
+
+
+def format_percent(value):
+    """Format percentages with one decimal place."""
+    if is_missing_number(value):
+        return "N/A"
+    return f"{float(value):.1f}%"
+
+
+def format_scaled_number(value, decimals=1):
+    """Format a scaled number and drop trailing .0 for cleaner display."""
+    if is_missing_number(value):
+        return "N/A"
+
+    formatted = f"{float(value):,.{decimals}f}"
+    return formatted.rstrip("0").rstrip(".") if "." in formatted else formatted
+
+
+def format_distance_km(value):
+    """Format distances in kilometres with one decimal place."""
+    if is_missing_number(value):
+        return "N/A"
+    return f"{format_scaled_number(value)} km"
+
+
+def format_usd(value):
+    """Format USD values using readable large-number units."""
+    if is_missing_number(value):
+        return "N/A"
+
+    value = float(value)
+    abs_value = abs(value)
+
+    if abs_value >= 1_000_000_000:
+        return f"USD {format_scaled_number(value / 1_000_000_000)} billion"
+    if abs_value >= 1_000_000:
+        return f"USD {format_scaled_number(value / 1_000_000)} million"
+    if abs_value >= 1_000:
+        return f"USD {format_scaled_number(value / 1_000)} thousand"
+
+    return f"USD {value:,.0f}"
+
+
+def format_usd_short(value):
+    """Compact USD formatter for Streamlit KPI tiles."""
+    if is_missing_number(value):
+        return "N/A"
+
+    value = float(value)
+    abs_value = abs(value)
+
+    if abs_value >= 1_000_000_000:
+        return f"USD {format_scaled_number(value / 1_000_000_000)}B"
+    if abs_value >= 1_000_000:
+        return f"USD {format_scaled_number(value / 1_000_000)}M"
+    if abs_value >= 1_000:
+        return f"USD {format_scaled_number(value / 1_000)}K"
+
+    return f"USD {value:,.0f}"
+
+
+def format_usd_per_connection(value):
+    """Format average USD per household connection without cents."""
+    if is_missing_number(value):
+        return "N/A"
+    return f"USD {float(value):,.0f} per household connection"
+
+
+def format_energy_kwh_per_year(value):
+    """Format kWh/year values into readable MWh/GWh/TWh units."""
+    if is_missing_number(value):
+        return "N/A"
+
+    value = float(value)
+    abs_value = abs(value)
+
+    if abs_value >= 1_000_000_000:
+        return f"{format_scaled_number(value / 1_000_000_000)} TWh/year"
+    if abs_value >= 1_000_000:
+        return f"{format_scaled_number(value / 1_000_000)} GWh/year"
+    if abs_value >= 1_000:
+        return f"{format_scaled_number(value / 1_000)} MWh/year"
+
+    return f"{value:,.0f} kWh/year"
+
+
 def format_native_energy(value):
-    """Format EnergyPerSettlement outputs in confirmed kWh/year units."""
-    return f"{value:,.2f} kWh/year"
+    """Format EnergyPerSettlement outputs from confirmed kWh/year units."""
+    return format_energy_kwh_per_year(value)
+
+
+def format_capacity(value_kw):
+    """Format kW values into readable MW/GW units."""
+    if is_missing_number(value_kw):
+        return "N/A"
+
+    value_kw = float(value_kw)
+    abs_value = abs(value_kw)
+
+    if abs_value >= 1_000_000:
+        return f"{format_scaled_number(value_kw / 1_000_000)} GW"
+    if abs_value >= 1_000:
+        return f"{format_scaled_number(value_kw / 1_000)} MW"
+
+    return f"{value_kw:,.0f} kW"
 
 
 def normalize_text(value):
@@ -590,22 +707,6 @@ def calculate_province_summary(processed_df, province_name):
 
 def convert_df(df_to_download):
     return df_to_download.to_csv(index=False).encode("utf-8")
-
-
-def format_usd_short(value):
-    if value >= 1_000_000_000:
-        return f"USD {value / 1_000_000_000:.2f}B"
-    return f"USD {value / 1_000_000:.1f}M"
-
-
-def format_usd_per_connection(value):
-    return f"USD {value:,.2f} per household connection"
-
-
-def format_capacity(value_kw):
-    if value_kw >= 1000:
-        return f"{value_kw / 1000:,.2f} MW"
-    return f"{value_kw:,.2f} kW"
 
 
 # Global initialization with experimental scenario selection.
@@ -692,7 +793,7 @@ default_scenario_index = next(
 
 with st.sidebar:
     st.title("🛰️ ChatOnSSET")
-    st.subheader("National Decision Support")
+    st.subheader("Scenario Analysis Prototype")
     st.markdown("#### Scenario Selection")
     selected_scenario_label = st.selectbox(
         "Active scenario",
@@ -799,20 +900,28 @@ with st.sidebar:
         f"Data Mode: Deterministic Python summaries\n"
         f"Response Mode: {response_mode}"
     )
-    st.caption("Developed for National IEP Framework Scaling")
+    st.caption("Prototype for GEP/OnSSET scenario-output exploration")
 
 
 # --- 5. OPENAI CLIENT ---
-client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+try:
+    openai_api_key = st.secrets["OPENAI_API_KEY"]
+except KeyError:
+    st.error(
+        "Missing OpenAI API key. Add OPENAI_API_KEY to .streamlit/secrets.toml before running the app."
+    )
+    st.stop()
+
+client = openai.OpenAI(api_key=openai_api_key)
 
 
 # --- 6. CHAT INTERFACE ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-st.markdown("### 👋 Welcome to ChatOnSSET National")
+st.markdown("### 👋 Welcome to ChatOnSSET")
 st.markdown(
-    "I am your specialized **Analytical Interface** for Mozambique GEP/OnSSET scenario analysis."
+    "This prototype helps analyze selected Mozambique GEP/OnSSET scenario outputs using deterministic Python calculations and AI-assisted explanations."
 )
 
 st.subheader("🛰️ National Scenario Matrix KPI Overview")
@@ -1324,13 +1433,13 @@ The technology-specific values divide each technology's modelled investment by i
             investment_response = f"""### National Investment by Technology
 
 #### Total Modelled CAPEX
-* **Total Modelled CAPEX:** USD {total_investment:,.2f}
+* **Total Modelled CAPEX:** {format_usd(total_investment)}
 
 #### Modelled CAPEX by Technology
-* **Grid Densification:** USD {metrics['grid_densification_investment_usd']:,.2f}
-* **Grid Extension:** USD {metrics['grid_extension_investment_usd']:,.2f}
-* **Mini-Grid Infrastructure:** USD {metrics['mini_grid_investment_usd']:,.2f}
-* **Standalone Solar Systems (SHS):** USD {metrics['standalone_solar_investment_usd']:,.2f}
+* **Grid Densification:** {format_usd(metrics['grid_densification_investment_usd'])}
+* **Grid Extension:** {format_usd(metrics['grid_extension_investment_usd'])}
+* **Mini-Grid Infrastructure:** {format_usd(metrics['mini_grid_investment_usd'])}
+* **Standalone Solar Systems (SHS):** {format_usd(metrics['standalone_solar_investment_usd'])}
 
 #### Analytical Note
 This result summarizes modelled investment outputs from the active scenario. It does not prescribe implementation decisions.{technical_scope_note("investment_by_technology", ["InvestmentCost2025", "InvestmentCost2030", "ElecStatusIn2025", "FinalElecCode2030"])}
@@ -1393,7 +1502,7 @@ The resulting household values are grouped by `FinalElecCode2030` technology cat
 * **SHS Settlement Clusters Within 5 km of Existing MV Lines:** {shs_mv['settlement_cluster_count']:,}
 * **Estimated SHS Household Connections in These Clusters:** {shs_mv['estimated_household_connections']:,} households
 * **Estimated 2030-Step SHS Household Connections in These Clusters:** {shs_mv['estimated_2030_step_household_connections']:,} households
-* **Average Distance to Existing MV Line:** {shs_mv['average_distance_to_mv_km']:,.2f} km{technical_scope_note("shs_within_5km_mv", ["FinalElecCode2030", "CurrentMVLineDist", "Estimated_Connections_HH", "Estimated_Connections_HH_2030"])}
+* **Average Distance to Existing MV Line:** {format_distance_km(shs_mv['average_distance_to_mv_km'])}{technical_scope_note("shs_within_5km_mv", ["FinalElecCode2030", "CurrentMVLineDist", "Estimated_Connections_HH", "Estimated_Connections_HH_2030"])}
 
 #### Methodology
 This filters the active scenario file to settlement clusters where:
@@ -1437,9 +1546,9 @@ and
                 split_lines.append(
                     f"* **{item['technology_label']}:** "
                     f"{item['settlement_cluster_count']:,} clusters "
-                    f"({item['cluster_share_pct']:.1f}% of clusters), "
+                    f"({format_percent(item['cluster_share_pct'])} of clusters), "
                     f"{item['estimated_households_2030']:,} estimated households "
-                    f"({item['household_share_pct']:.1f}% of households)"
+                    f"({format_percent(item['household_share_pct'])} of households)"
                 )
 
             split_response = f"""### Technology Split for Settlements With 100–1000 Households
@@ -1521,10 +1630,10 @@ I could not find `{province_match}` in the active scenario file's `Admin1` colum
 * **Settlement Clusters in Province:** {province_metrics['settlement_cluster_count']:,}
 
 #### Technology-Disaggregated Capital Requirements
-* **Grid Densification Portfolio:** USD {province_metrics['grid_densification_investment_usd']:,.2f}
-* **Grid Extension Portfolio:** USD {province_metrics['grid_extension_investment_usd']:,.2f}
-* **Mini-Grid Infrastructure:** USD {province_metrics['mini_grid_investment_usd']:,.2f}
-* **Standalone Solar Systems (SHS):** USD {province_metrics['standalone_solar_investment_usd']:,.2f}
+* **Grid Densification Portfolio:** {format_usd(province_metrics['grid_densification_investment_usd'])}
+* **Grid Extension Portfolio:** {format_usd(province_metrics['grid_extension_investment_usd'])}
+* **Mini-Grid Infrastructure:** {format_usd(province_metrics['mini_grid_investment_usd'])}
+* **Standalone Solar Systems (SHS):** {format_usd(province_metrics['standalone_solar_investment_usd'])}
 
 #### Estimated Household Connections
 * **Total Estimated Household Connections:** {province_metrics['estimated_household_connections']:,} households
@@ -1751,18 +1860,18 @@ The current version supports national-level investment, estimated household-conn
                     {
                         "role": "system",
                         "content": f"""HARD QUANTITATIVE CONSTRAINTS:
-- Absolute Grid Densification Investment: {metrics['grid_densification_investment_usd']:,.2f} USD
-- Absolute Grid Extension Investment: {metrics['grid_extension_investment_usd']:,.2f} USD
-- Absolute Mini-Grid Investment: {metrics['mini_grid_investment_usd']:,.2f} USD
-- Absolute Standalone Solar Investment: {metrics['standalone_solar_investment_usd']:,.2f} USD
+- Absolute Grid Densification Investment: {format_usd(metrics['grid_densification_investment_usd'])}
+- Absolute Grid Extension Investment: {format_usd(metrics['grid_extension_investment_usd'])}
+- Absolute Mini-Grid Investment: {format_usd(metrics['mini_grid_investment_usd'])}
+- Absolute Standalone Solar Investment: {format_usd(metrics['standalone_solar_investment_usd'])}
 - Estimated Household Connections: {metrics['estimated_household_connections']:,} households
 - Estimated Household Connections by Year: {json.dumps(metrics['estimated_household_connections_by_year'])}
 - Estimated Household Connections by Technology: {json.dumps(metrics['estimated_household_connections_by_technology'])}
-- Average Cost per Household Connection: {metrics['average_cost_per_household_connection_usd']:,.2f} USD per household connection
+- Average Cost per Household Connection: {format_usd_per_connection(metrics['average_cost_per_household_connection_usd'])}
 - Average Cost per Household Connection by Technology: {json.dumps(metrics['average_cost_per_household_connection_by_technology_usd'])}
 - Population Summary: {json.dumps(metrics['population_summary'])}
 - Capacity by Technology in kW: {json.dumps(metrics['capacity_by_technology_kw'])}
-- Total New Capacity in kW: {metrics['total_new_capacity_kw']:,.2f}
+- Total New Capacity: {format_capacity(metrics['total_new_capacity_kw'])}
 - Mini-Grid Summary: {json.dumps(metrics['mini_grid_summary'])}
 - Dominant Capital Cost Technology: {metrics['dominant_technology_by_capex']}.
 
@@ -1782,10 +1891,10 @@ Your written text analysis and narrative descriptions MUST align strictly with t
 {clean_summary}
 
 #### ⚡ Technology-Disaggregated Capital Requirements (CAPEX)
-* **Grid Densification Portfolio:** USD {metrics['grid_densification_investment_usd']:,.2f}
-* **Grid Extension Portfolio:** USD {metrics['grid_extension_investment_usd']:,.2f}
-* **Mini-Grid Infrastructure:** USD {metrics['mini_grid_investment_usd']:,.2f}
-* **Standalone Solar Systems (SHS):** USD {metrics['standalone_solar_investment_usd']:,.2f}
+* **Grid Densification Portfolio:** {format_usd(metrics['grid_densification_investment_usd'])}
+* **Grid Extension Portfolio:** {format_usd(metrics['grid_extension_investment_usd'])}
+* **Mini-Grid Infrastructure:** {format_usd(metrics['mini_grid_investment_usd'])}
+* **Standalone Solar Systems (SHS):** {format_usd(metrics['standalone_solar_investment_usd'])}
 
 #### 📊 Macro Scalability Metrics
 * **Estimated Household Connections (2030):** {metrics['estimated_household_connections']:,} households
