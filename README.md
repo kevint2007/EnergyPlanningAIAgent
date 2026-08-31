@@ -14,9 +14,11 @@ Core principle:
 
 This repository was originally based on the open-source OnSSET project structure. Some folders, notebooks, and files in this repository come from the downloaded OnSSET codebase and related modelling workflow.
 
-My contribution is the ChatOnSSET prototype layer, including the Streamlit application, scenario selector, question registry, deterministic calculation modules, output-formatting improvements, testing documentation, and handoff/scaling notes.
+My main contribution is the ChatOnSSET prototype layer added on top of this existing OnSSET project structure. This includes the Streamlit application, scenario selector, scenario metadata, question registry, deterministic calculation modules, output-formatting improvements, documentation for adding new questions, and handoff/scaling notes.
 
 This repository should therefore be read as a modified OnSSET-based project workspace, not as a newly authored replacement for the original OnSSET tool.
+
+Most other folders relate to the inherited OnSSET project structure and are retained for context and compatibility.
 
 ---
 
@@ -37,17 +39,20 @@ For each supported question, the app performs a deterministic calculation on the
 
 ## What I Added
 
-My main contributions in this repository include:
+My main contribution in this repository is the ChatOnSSET prototype layer added on top of the existing OnSSET project structure.
+
+Key additions include:
 
 - `app.py`: Streamlit-based ChatOnSSET prototype for querying active GEP/OnSSET scenario files.
 - Scenario selector for active Mozambique scenario outputs.
 - Manual scenario metadata descriptions based on input-parameter differences.
 - A deterministic question registry for supported analytical questions.
-- Python calculation modules for investment, capacity, household connections, population summaries, mini-grid demand, SHS proximity to MV lines, least-cost SHS settlement analysis, and technology split questions.
+- Python calculation modules for investment, capacity, household connections, population summaries, province/Admin1 summaries, mini-grid demand, SHS proximity to MV lines, least-cost SHS settlement analysis, and technology split questions.
 - Output formatting for large values, including USD millions/billions, MWh/GWh, MW/GW, and cleaner rounding.
 - Documentation for adding new question modules.
-- Testing notes for supported questions across active scenarios.
 - Scaling notes describing what would be required to expand beyond the current prototype.
+
+Most other folders relate to the inherited OnSSET project structure and are retained for context and compatibility.
 
 ---
 
@@ -59,7 +64,6 @@ My main contributions in this repository include:
 | `data/scenario_metadata.csv` | Scenario labels and descriptions used by the app |
 | `data/README.md` | Instructions for setting up public scenario data locally |
 | `docs/question_registry_guide.md` | Explains how supported questions are added |
-| `docs/test_questions.md` | Records tested question modules and expected behavior |
 | `docs/scaling_notes.md` | Notes on what would be required to scale the prototype |
 
 ---
@@ -101,7 +105,6 @@ This structure reduces the risk of hallucinated numbers and makes the prototype 
 ---
 
 ## Data Setup
-## Data Setup
 
 Large scenario CSV files are not included in this repository.
 
@@ -119,17 +122,11 @@ EnergyPlanningAIAgent/
 │   └── mz-3-0_0_1_1_0_1.csv
 ├── docs/
 └── README.md
+
+
 ```
 
-See:
-
-```text
-data/README.md
-```
-
-for additional data setup notes.
-
----
+See: data/README.md for additional data setup notes.
 
 ## Running ChatOnSSET Locally
 
