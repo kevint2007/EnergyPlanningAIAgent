@@ -285,7 +285,7 @@ For the original OnSSET installation workflow, users should refer to the officia
 
 The original OnSSET repository can be run using interactive Jupyter notebooks. In the original workflow, users first create the input file with GIS data extracted for each settlement, then run calibration and scenario notebooks.
 
-Typical original OnSSET notebooks include:
+The Original OnSSET notebooks include:
 
 - `OnSSET_Calibration.ipynb`
 - `OnSSET_Scenarios.ipynb`
