@@ -75,21 +75,101 @@ A short demo video is available to show the current ChatOnSSET prototype workflo
 |---|---|
 | [Latest ChatOnSSET Prototype Demo](https://youtu.be/pb3CTAfDjXc?si=qdeGs3ATbztvxA3K) | Shows the current version prepared for review and handoff. |
 
-## Supported Question Modules
+## Supported Questions
 
-The current prototype supports deterministic calculations for questions such as:
+The current prototype supports deterministic calculations for the following types of questions.
 
-- National investment required by technology by 2030
-- Capacity required by technology
-- Household connections by technology
-- Population and electrification summaries
-- Province/Admin1 summaries
-- SHS within 5 km of existing MV lines
-- Settlements with more than 100 households where SHS is least-cost
-- Technology split for settlements with 100–1000 households
-- Additional annual demand supplied by mini-grids by 2030
+The exact routing and calculation logic are implemented in `app.py` through the question registry. The list below is intended to help reviewers understand the prototype’s current plain-language capabilities without needing to inspect the code first.
 
-Each supported question is implemented through a question-registry process. This means the required columns, calculation logic, routing, and response template are explicitly defined in the codebase.
+### National-Level Scenario Questions
+
+The prototype can answer national-level questions about investment, capacity, household connections, population, electrification, and technology outputs for the active scenario.
+
+Supported question types include:
+
+- What is the national investment required by technology by 2030?
+- What is the total modelled investment required by 2030?
+- What is the investment breakdown by technology?
+- What is the total capacity required by technology?
+- What is the capacity breakdown by technology?
+- How many household connections are required by technology?
+- What is the household-connection breakdown by technology?
+- What is the average cost per household connection?
+- What is the total population summary for the active scenario?
+- What is the electrification summary for the active scenario?
+
+These questions are calculated from the selected scenario file and grouped by the relevant final 2030 technology assignment where applicable.
+
+---
+
+### Province/Admin1-Level Questions
+
+The prototype can also answer selected province/Admin1-level questions when the user names a province or Admin1 region contained in the active scenario file.
+
+Supported question types include:
+
+- What is the investment summary for a specific province?
+- What is the capacity summary for a specific province?
+- What is the household-connection summary for a specific province?
+- What is the population summary for a specific province?
+- What is the electrification summary for a specific province?
+- What is the technology breakdown for a specific province?
+
+Example:
+
+```text
+What is the investment summary for Nampula?
+```
+
+Province/Admin1 summaries reuse the same deterministic calculation approach as the national-level questions, but filter the active scenario file to the selected geographic area.
+
+---
+
+### Expanded Stress-Test Questions
+
+The prototype includes additional planning-analysis questions that were added to test whether the system could support more specific analytical queries beyond basic national summaries.
+
+Supported stress-test questions include:
+
+- How many Solar Home Systems are to be deployed within 5 km of existing MV lines?
+- How many settlements with more than 100 households have SHS as the least-cost technology?
+- What is the technology split for settlements with 100–1000 households?
+- What is the additional annual demand to be supplied by mini-grids by 2030?
+
+These questions test whether the app can filter scenario outputs by technology, settlement size, distance to existing medium-voltage lines, least-cost technology assignment, and modelled annual electricity demand.
+
+---
+
+### Methodology and Traceability Questions
+
+The prototype can provide methodology or traceability notes for supported calculations when available.
+
+Supported methodology-oriented questions include:
+
+- How was this result calculated?
+- What columns were used for this calculation?
+- What assumptions or caveats apply to this question?
+- What does this supported question mean?
+- How is the question registry used?
+
+These responses are intended to make the calculation process more transparent. They do not replace the deterministic calculation functions.
+
+---
+
+### Unsupported or Out-of-Scope Questions
+
+ChatOnSSET is not designed to answer every possible energy-planning question. Unsupported questions should return a clear scope limitation instead of allowing the LLM to guess.
+
+The app is not intended to provide:
+
+- policy recommendations,
+- implementation prescriptions,
+- investment advice,
+- unsupported scenario interpretations,
+- conclusions not calculated from the active scenario file,
+- numerical estimates invented by the LLM.
+
+The current prototype is focused on querying and explaining supported scenario-output calculations.
 
 ---
 
