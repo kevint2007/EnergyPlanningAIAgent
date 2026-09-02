@@ -67,6 +67,13 @@ Most other folders relate to the inherited OnSSET project structure and are reta
 | `docs/scaling_notes.md` | Notes on what would be required to scale the prototype |
 
 ---
+## Demo Video
+
+A short demo video is available to show the current ChatOnSSET prototype workflow, including the Streamlit interface, scenario selector, supported analytical questions, deterministic calculations, and readable AI-assisted explanations.
+
+| Demo | Description |
+|---|---|
+| [Latest ChatOnSSET Prototype Demo](https://youtu.be/pb3CTAfDjXc?si=qdeGs3ATbztvxA3K) | Shows the current version prepared for review and handoff. |
 
 ## Supported Question Modules
 
